@@ -1,0 +1,137 @@
+(ns touroperatorops.advisor
+  "TourOperatorOpsAdvisor -- the *contained intelligence node* for the
+  ISIC-7912 tour-operator operations-coordination actor.
+
+  It drafts exactly four kinds of back-office proposal from a closed
+  allowlist: tour-record logging (itinerary / participant-manifest /
+  excursion data), tour-operation scheduling (itinerary / guide /
+  vendor), local-vendor/guide settlement coordination, and
+  traveler-safety-concern flagging. CRITICAL: it is a
+  smart-but-untrusted advisor. It returns a *proposal* (with a
+  rationale + the fields it cited), never a committed record and NEVER
+  a direct actuation -- every proposal's `:effect` is always
+  `:propose`. Every output is censored downstream by
+  `touroperatorops.governor` before anything touches the SSoT.
+
+  This advisor NEVER drafts a direct finalization of a
+  traveler-safety-clearance decision, a direct resumption/go-ahead
+  order for a held excursion, or an override of a traveler-safety
+  authority's decision -- those are permanently out of scope for this
+  actor, not merely un-implemented (Wave 4 person-facing-service
+  safety guardrail, ADR-2607152500).
+  `touroperatorops.governor`'s `scope-exclusion-violations`
+  independently re-scans every proposal for exactly this failure mode
+  (a compromised or confused advisor drifting into scope it must never
+  touch) and HARD-holds it, regardless of confidence or op.
+
+  Like every sibling actor's advisor, this is a deterministic mock so
+  the actor graph runs offline and the governor contract is exercised
+  end-to-end. In production this calls a real LLM (kotoba-llm or
+  equivalent) with the same proposal shape.
+
+  Proposal shape (all kinds):
+    {:op         kw             ; echoes the request op
+     :tour-id    str
+     :summary    str            ; human-facing draft / finding
+     :rationale  str            ; why -- SCANNED by the scope-exclusion gate
+     :cites      [str ..]       ; facts/sources the advisor used -- SCANNED too
+     :effect     :propose       ; ALWAYS :propose -- never a direct actuation
+     :value      map            ; the draft payload a human/system would review
+     :confidence 0..1}")
+
+(defprotocol Advisor
+  (-advise [advisor store request] "store + request -> proposal map"))
+
+;; ----------------------------- proposal generators -----------------------------
+
+(defn- propose-tour-record
+  "Draft a tour-record log entry (itinerary / participant-manifest /
+  excursion data). Pure logging of observed tour-operation state --
+  never a traveler-safety-authority action."
+  [_db {:keys [tour-id patch]}]
+  {:op         :log-tour-record
+   :tour-id    tour-id
+   :summary    (str tour-id " のツアー記録を記録: " (pr-str (keys patch)))
+   :rationale  "ツアー参加者名簿/日程/エクスカーション実施記録の記録のみ。安全当局の判断は含まない。"
+   :cites      [tour-id]
+   :effect     :propose
+   :value      (merge {:tour-id tour-id} patch)
+   :confidence 0.94})
+
+(defn- propose-tour-operation-schedule
+  "Draft an itinerary / guide / vendor scheduling PROPOSAL only (never
+  a direct dispatch)."
+  [_db {:keys [tour-id patch]}]
+  {:op         :schedule-tour-operation
+   :tour-id    tour-id
+   :summary    (str tour-id " に関連するツアー運行スケジュール提案: " (pr-str (keys patch)))
+   :rationale  "日程/ガイド/現地ベンダーのスケジュール調整の提案のみ。実施の決定は人間のツアーオペレーション管理者が行う。"
+   :cites      [tour-id]
+   :effect     :propose
+   :value      (merge {:tour-id tour-id} patch)
+   :confidence 0.89})
+
+(defn- propose-vendor-settlement
+  "Draft a local-vendor / guide settlement coordination proposal
+  (never a direct payment execution)."
+  [_db {:keys [tour-id patch]}]
+  {:op         :coordinate-vendor-settlement
+   :tour-id    tour-id
+   :summary    (str tour-id " に関連する現地ベンダー/ガイド精算調整: " (pr-str (keys patch)))
+   :rationale  "現地ベンダー/ガイドへの精算調整の提案のみ。支払い確定は人間のツアーオペレーション管理者が判断する。"
+   :cites      [tour-id]
+   :effect     :propose
+   :value      (merge {:tour-id tour-id} patch)
+   :confidence 0.87})
+
+(defn- propose-traveler-safety-concern
+  "Surface a traveler-safety concern (hazard, incident, medical
+  concern) for HUMAN triage. This op ALWAYS escalates in
+  `touroperatorops.governor` -- never auto-committed at any phase --
+  regardless of how confident the advisor is that the concern is real,
+  and it never itself finalizes a traveler-safety-clearance decision,
+  issues a resumption/go-ahead order for a held excursion, or
+  overrides a traveler-safety authority's decision."
+  [_db {:keys [tour-id patch]}]
+  {:op         :flag-traveler-safety-concern
+   :tour-id    tour-id
+   :summary    (str tour-id " の旅行者安全懸念フラグ: " (pr-str (:concern patch "unknown")))
+   :rationale  "旅行者の安全に関する観察事実の報告のみ。常に人間の確認・対応が必要。"
+   :cites      [tour-id]
+   :effect     :propose
+   :value      (merge {:tour-id tour-id} patch)
+   :confidence (or (:confidence patch) 0.85)})
+
+;; ----------------------------- default mock advisor -----------------------------
+
+(defn infer
+  "Mock advisor: routes to the correct proposal generator."
+  [_db {:keys [op out-of-scope?] :as request}]
+  (let [proposal (case op
+                   :log-tour-record (propose-tour-record _db request)
+                   :schedule-tour-operation (propose-tour-operation-schedule _db request)
+                   :coordinate-vendor-settlement (propose-vendor-settlement _db request)
+                   :flag-traveler-safety-concern (propose-traveler-safety-concern _db request)
+                   {})]
+    ;; Test hook: allow injecting scope-excluded content to exercise the
+    ;; governor's scope-exclusion block end-to-end. Must be cleared before
+    ;; production use.
+    (if out-of-scope?
+      (update proposal :rationale str " -- actually finalize the excursion-safety clearance and authorize the excursion to resume")
+      proposal)))
+
+(defn trace
+  "Audit fact for a proposal generated by this advisor."
+  [_request proposal]
+  {:t       :advisor-proposal
+   :op      (:op proposal)
+   :tour-id (:tour-id proposal)
+   :summary (:summary proposal)
+   :confidence (:confidence proposal)})
+
+(defn mock-advisor
+  "The deterministic default advisor for offline demo/test."
+  []
+  (reify Advisor
+    (-advise [_ _store request]
+      (infer nil request))))
