@@ -1,4 +1,4 @@
-{:itonami.blueprint/id "cloud-itonami-7912"
+{:itonami.blueprint/id "cloud-itonami-isic-7912"
  :itonami.blueprint/name "Community Tour Operator Operations"
  :itonami.blueprint/isic-rev5 "7912"
  :itonami.blueprint/domain :commercial/tour-operator-services
