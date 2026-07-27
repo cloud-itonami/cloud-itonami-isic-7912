@@ -29,7 +29,8 @@
 
   The ledger stays append-only: which tour a proposal targeted, which
   operation, on what basis, committed/held/escalated and approved by
-  whom is always a query over an immutable log.")
+  whom is always a query over an immutable log."
+  (:require [kotoba.reservation :as res]))
 
 (defprotocol Store
   (tour [s tour-id] "Registered tour-booking record, or nil.
@@ -43,17 +44,27 @@
 
 ;; ----------------------------- demo data -----------------------------
 
+(defn- settlement-plan
+  "One filed per-unit settlement rate -- `kotoba.reservation` ground
+  truth the governor recomputes a settlement amount from. Integer minor
+  units (USD cents)."
+  [id per-unit]
+  (res/rate-plan id :unit per-unit "USD" :min-units 1))
+
 (defn demo-data
   "A small, self-contained tour directory covering both the happy path
   and the governor's own hard checks, so the actor + tests run offline."
   []
   {:tours
    {"tour-1" {:tour-id "tour-1" :name "3-day guided highlands trek, 8 participants"
-              :registered? true :verified? true}
+              :registered? true :verified? true
+             :billable-units 40 :rate-plan (settlement-plan "tour-1-rate" 2500)}
     "tour-2" {:tour-id "tour-2" :name "Half-day city walking tour, 12 participants"
-              :registered? true :verified? true}
+              :registered? true :verified? true
+             :billable-units 400 :rate-plan (settlement-plan "tour-2-rate" 6000)}
     "tour-3" {:tour-id "tour-3" :name "Coastal kayak excursion, awaiting guide-certification verification"
-              :registered? true :verified? false}}})
+              :registered? true :verified? false
+             :billable-units 10 :rate-plan (settlement-plan "tour-3-rate" 3000)}}})
 
 ;; ----------------------------- MemStore (default) -----------------------------
 

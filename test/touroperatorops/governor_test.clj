@@ -2,12 +2,24 @@
   "Pure unit tests of `touroperatorops.governor/check` against
   hand-built proposals -- the fast, focused complement to
   `governor-contract-test`'s full-graph integration coverage."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.reservation :as res]
+            [clojure.test :refer [deftest is testing]]
             [touroperatorops.governor :as gov]
             [touroperatorops.advisor :as adv]
             [touroperatorops.store :as store]))
 
-(def tour-1 {:tour-id "tour-1" :name "3-day guided highlands trek" :registered? true :verified? true})
+;; Settlement fixtures carry a filed per-unit rate + billable-unit count:
+;; the governor recomputes the settlement amount from THOSE, never from the
+;; amount the advisor states. tour-1 recomputes to 40 x 2500 = 100,000
+;; minor units (above the threshold); tour-low to 2 x 600 = 1,200 (under it).
+(def ^:private plan-hi (res/rate-plan "hi-rate" :unit 2500 "USD" :min-units 1))
+(def ^:private plan-lo (res/rate-plan "lo-rate" :unit 600 "USD" :min-units 1))
+
+(def tour-1 {:tour-id "tour-1" :name "3-day guided highlands trek" :registered? true :verified? true
+             :billable-units 40 :rate-plan plan-hi})
+(def tour-low {:tour-id "tour-low" :name "Small vendor settlement"
+              :registered? true :verified? true
+              :billable-units 2 :rate-plan plan-lo})
 (def tour-3 {:tour-id "tour-3" :name "Coastal kayak excursion, awaiting verification" :registered? true :verified? false})
 
 (defn- clean-proposal [op tour-id]
@@ -95,7 +107,7 @@
       (doseq [op [:log-tour-record :schedule-tour-operation
                   :coordinate-vendor-settlement :flag-traveler-safety-concern]]
         (let [proposal (adv/infer nil {:op op :tour-id "tour-1"
-                                        :patch {:concern "routine observation" :estimated-amount 100}})
+                                        :patch {:concern "routine observation"}})
               verdict (gov/check {:tour-id "tour-1"} nil proposal s)]
           (is (empty? (filter #(= :scope-excluded (:rule %)) (:violations verdict)))
               (str "default mock-advisor proposal for op " op " must never self-trip scope-exclusion"))
@@ -115,7 +127,7 @@
   (testing "a coordinate-vendor-settlement proposal above the cost threshold escalates even when governor-clean and high confidence"
     (let [s (store/mem-store {"tour-1" tour-1})
           expensive (assoc (clean-proposal :coordinate-vendor-settlement "tour-1")
-                           :value {:estimated-amount 2500} :confidence 0.97)
+                           :value {:estimated-amount 100000} :confidence 0.97)
           verdict (gov/check {} nil expensive s)]
       (is (false? (:hard? verdict)))
       (is (true? (:high-stakes? verdict)))
@@ -123,9 +135,11 @@
 
 (deftest low-cost-vendor-settlement-does-not-force-escalation
   (testing "a coordinate-vendor-settlement proposal under the cost threshold is not forced to escalate on cost grounds alone"
-    (let [s (store/mem-store {"tour-1" tour-1})
-          routine (assoc (clean-proposal :coordinate-vendor-settlement "tour-1")
-                        :value {:estimated-amount 400} :confidence 0.9)
+    (let [s (store/mem-store {"tour-low" tour-low})
+          routine (assoc (clean-proposal :coordinate-vendor-settlement "tour-low")
+                        ;; 2 units x 600 = 1,200 -- the RECOMPUTED amount, which is
+                        ;; what a clean proposal must state
+                        :value {:estimated-amount 1200} :confidence 0.9)
           verdict (gov/check {} nil routine s)]
       (is (false? (:hard? verdict)))
       (is (false? (:high-stakes? verdict))))))
@@ -146,3 +160,36 @@
       (is (true? (:ok? verdict)))
       (is (false? (:hard? verdict)))
       (is (false? (:escalate? verdict))))))
+
+(deftest understating-the-amount-cannot-buy-its-way-under-the-threshold
+  (testing "the whole point of recomputing: an advisor stating a figure just
+            under the threshold for a 100,000 settlement used to bypass the
+            human escalation entirely, because the gate's only input was the
+            number under suspicion"
+    (let [s (store/mem-store {"tour-1" tour-1})
+          understated (assoc (clean-proposal :coordinate-vendor-settlement "tour-1")
+                             :value {:estimated-amount (dec gov/high-cost-threshold)}
+                             :confidence 0.99)
+          verdict (gov/check {} nil understated s)]
+      (is (true? (:hard? verdict)) "the mismatch itself is hard")
+      (is (some #{:settlement-mismatch} (map :rule (:violations verdict))))
+      (is (false? (:ok? verdict))))))
+
+(deftest omitting-the-amount-no-longer-skips-the-gate
+  (testing "`some->` on a missing :estimated-amount used to return nil, so a
+            settlement proposal carrying no amount at all escalated to nobody"
+    (let [s (store/mem-store {"tour-1" tour-1})
+          amountless (assoc (clean-proposal :coordinate-vendor-settlement "tour-1")
+                            :value {} :confidence 0.99)
+          verdict (gov/check {} nil amountless s)]
+      (is (true? (:hard? verdict)))
+      (is (some #{:settlement-not-recomputable} (map :rule (:violations verdict)))))))
+
+(deftest an-unrecomputable-settlement-is-hard-not-a-pass
+  (let [bare (store/mem-store {"tour-1" (dissoc tour-1 :rate-plan :billable-units)})
+        verdict (gov/check {} nil
+                           (assoc (clean-proposal :coordinate-vendor-settlement "tour-1")
+                                  :value {:estimated-amount 100000} :confidence 0.99)
+                           bare)]
+    (is (true? (:hard? verdict)))
+    (is (some #{:settlement-not-recomputable} (map :rule (:violations verdict))))))
