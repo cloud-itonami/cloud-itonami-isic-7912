@@ -78,6 +78,7 @@
   `:flag-traveler-safety-concern` is never a member of any phase's
   `:auto` set either -- two layers, not one."
   (:require [clojure.string :as str]
+            [kotoba.reservation :as res]
             [touroperatorops.store :as store]))
 
 (def confidence-floor 0.6)
@@ -182,13 +183,58 @@
       [{:rule :scope-excluded
         :detail "旅行者安全クリアランスの直接確定/エクスカーション再開許可の直接発行/旅行者安全当局の判断の上書きは永久に禁止"}])))
 
+(defn recomputed-settlement
+  "The settlement amount for `tour-id`, recomputed from the entity's
+  OWN filed rate plan and billable-unit count. nil when it cannot be
+  recomputed.
+
+  This is the number the high-value gate and the mismatch gate both
+  read. Neither reads the advisor's claim."
+  [store id]
+  (let [e (when store (store/tour store id))
+        plan (:rate-plan e)
+        units (:billable-units e)]
+    (when (and plan (integer? units) (pos? units))
+      (res/quote-total (res/quote-for plan {:dates [nil] :qty units})))))
+
+(defn- settlement-recompute-violations
+  "RECOMPUTE a `:coordinate-vendor-settlement` amount from the entity's
+  own filed rate plan and reject a claimed amount that does not match.
+
+  This closes a hole rather than adding a nicety. The high-value gate
+  used to read `:value :estimated-amount` STRAIGHT OUT OF THE ADVISOR'S
+  OWN PROPOSAL: an advisor stating a figure just under the threshold for
+  a far larger settlement bypassed the human escalation entirely,
+  because the gate's only input was the thing it existed to guard
+  against. And `some->` meant OMITTING the field skipped the gate too --
+  a settlement proposal with no amount at all escalated to nobody.
+
+  A check that cannot be performed is a violation, not a pass."
+  [proposal store]
+  (when (= :coordinate-vendor-settlement (:op proposal))
+    (let [id (:tour-id proposal)
+          claimed (get-in proposal [:value :estimated-amount])
+          truth (recomputed-settlement store id)]
+      (cond
+        (nil? truth)
+        [{:rule :settlement-not-recomputable
+          :detail (str id " に届出精算レート/請求単位が無い -- 提示精算額を独立に再計算できない")}]
+
+        (nil? claimed)
+        [{:rule :settlement-not-recomputable
+          :detail "提案に :estimated-amount が無い -- 金額の無い精算調整は受け付けない(旧実装では高額ゲートを素通りしていた)"}]
+
+        (not= claimed truth)
+        [{:rule :settlement-mismatch
+          :detail (str "提示精算額 " claimed " は届出レートからの再計算結果 " truth " と一致しない")}]))))
+
 (defn- high-cost-vendor-settlement?
-  "A `:coordinate-vendor-settlement` proposal whose `:value
-  :estimated-amount` exceeds `high-cost-threshold` ALWAYS escalates,
-  regardless of confidence."
-  [proposal]
+  "A `:coordinate-vendor-settlement` whose RECOMPUTED amount exceeds
+  `high-cost-threshold` ALWAYS escalates, regardless of confidence.
+  Reads the recomputed amount, never the advisor's claim."
+  [proposal store]
   (and (= :coordinate-vendor-settlement (:op proposal))
-       (some-> (get-in proposal [:value :estimated-amount])
+       (some-> (recomputed-settlement store (:tour-id proposal))
                (> high-cost-threshold))))
 
 (defn check
@@ -200,11 +246,12 @@
         hard (into []
                    (concat (tour-unverified-violations {:tour-id tour-id} store)
                            (effect-not-propose-violations proposal)
-                           (scope-exclusion-violations proposal)))
+                           (scope-exclusion-violations proposal)
+                           (settlement-recompute-violations proposal store)))
         conf (:confidence proposal 0.0)
         low? (< conf confidence-floor)
         stakes? (boolean (or (always-escalate-ops (:op proposal))
-                              (high-cost-vendor-settlement? proposal)))
+                              (high-cost-vendor-settlement? proposal store)))
         hard? (boolean (seq hard))]
     {:ok?          (and (not hard?) (not low?) (not stakes?))
      :violations   hard

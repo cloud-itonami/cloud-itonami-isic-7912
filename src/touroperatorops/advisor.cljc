@@ -37,7 +37,8 @@
      :cites      [str ..]       ; facts/sources the advisor used -- SCANNED too
      :effect     :propose       ; ALWAYS :propose -- never a direct actuation
      :value      map            ; the draft payload a human/system would review
-     :confidence 0..1}")
+     :confidence 0..1}"
+  (:require [touroperatorops.governor :as governor]))
 
 (defprotocol Advisor
   (-advise [advisor store request] "store + request -> proposal map"))
@@ -74,15 +75,21 @@
 (defn- propose-vendor-settlement
   "Draft a local-vendor / guide settlement coordination proposal
   (never a direct payment execution)."
-  [_db {:keys [tour-id patch]}]
-  {:op         :coordinate-vendor-settlement
-   :tour-id    tour-id
-   :summary    (str tour-id " に関連する現地ベンダー/ガイド精算調整: " (pr-str (keys patch)))
-   :rationale  "現地ベンダー/ガイドへの精算調整の提案のみ。支払い確定は人間のツアーオペレーション管理者が判断する。"
-   :cites      [tour-id]
-   :effect     :propose
-   :value      (merge {:tour-id tour-id} patch)
-   :confidence 0.87})
+  [_db {:keys [tour-id patch understate?]}]
+  (let [truth (governor/recomputed-settlement _db tour-id)
+        ;; `understate?` states an amount just under the escalation
+        ;; threshold for a settlement that is actually far above it -- the
+        ;; bypass the recompute gate exists to close.
+        amount (if understate? (dec governor/high-cost-threshold) truth)]
+    {:op         :coordinate-vendor-settlement
+     :tour-id    tour-id
+     :summary    (str tour-id " に関連する現地ベンダー/ガイド精算調整: " (pr-str (keys patch)))
+     :rationale  "現地ベンダー/ガイドへの精算調整の提案のみ。支払い確定は人間のツアーオペレーション管理者が判断する。"
+     :cites      [tour-id]
+     :effect     :propose
+     :value      (cond-> (merge {:tour-id tour-id} patch)
+                   amount (assoc :estimated-amount amount))
+     :confidence 0.87}))
 
 (defn- propose-traveler-safety-concern
   "Surface a traveler-safety concern (hazard, incident, medical
@@ -133,5 +140,8 @@
   "The deterministic default advisor for offline demo/test."
   []
   (reify Advisor
-    (-advise [_ _store request]
-      (infer nil request))))
+    (-advise [_ store request]
+      ;; the store is threaded through, not discarded: the settlement
+      ;; proposal prices itself off the entity's own filed rate, and an
+      ;; advisor handed nil cannot price anything.
+      (infer store request))))
