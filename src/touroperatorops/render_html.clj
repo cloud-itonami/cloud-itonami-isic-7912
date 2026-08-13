@@ -31,9 +31,13 @@
   merely counting holds would be satisfied by a page that never showed
   a single compliance refusal.
 
-  Usage: `clojure -M:dev:render-html [out-file]`
-  (default `docs/samples/operator-console.html`)."
-  (:require [clojure.string :as str]
+  Usage: `clojure -M:render-html [out-file]` (default
+  `docs/samples/operator-console.html`). Add `:dev` --
+  `clojure -M:dev:render-html` -- to pin langgraph/langchain to the
+  sibling monorepo checkouts instead of their published git shas; both
+  were run and produce a byte-identical page."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [jp-go-dds.skin]
             [langgraph.graph :as g]
             [touroperatorops.advisor :as advisor]
@@ -313,7 +317,7 @@
        "      <tbody>\n"
        (if (seq rows)
          (str (str/join "\n" rows) "\n")
-         (str (row (str "<span class=\"muted\">nothing in this run</span>")) "\n"))
+         (str (row "<span class=\"muted\">nothing in this run</span>") "\n"))
        "      </tbody>\n"
        "    </table>\n"
        "  </section>\n"))
@@ -662,6 +666,10 @@
         ledger (vec (store/ledger db))
         {:keys [holds hard reasons]} (assert-hard-holds! ledger)
         disc (approver-disclosure db runs)]
+    ;; Only after the invariant has passed -- a refused build must not
+    ;; leave a directory behind implying a page was produced.
+    (when-let [parent (.getParentFile (io/file out))]
+      (.mkdirs parent))
     (spit out (render db runs))
     (println "wrote" out)
     (println "  scenarios      :" (count runs))
