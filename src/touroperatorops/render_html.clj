@@ -37,7 +37,7 @@
   sibling monorepo checkouts instead of their published git shas; both
   were run and produce a byte-identical page."
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [jp-go-dds.skin]
             [langgraph.graph :as g]
             [touroperatorops.advisor :as advisor]
