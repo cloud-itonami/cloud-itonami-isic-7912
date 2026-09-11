@@ -2469,7 +2469,7 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
 <main>
   <section class="card">
     <h2>What this page is</h2>
-    <p>Generated at build time by <code>touroperatorops.render-html</code> (<code>clojure -M:dev:render-html</code>) by running the real actor stack &mdash; <code>touroperatorops.operation</code> (a langgraph-clj StateGraph) &rarr; <code>touroperatorops.governor</code> &rarr; <code>touroperatorops.store</code> &mdash; over 14 scenarios against one freshly seeded tour directory. Every id, amount, hold reason and approver below is this run's actual output. The generator refuses to write this file unless the run produced at least one HARD governor refusal carrying a real violation.</p>
+    <p>Generated at build time by <code>touroperatorops.render-html</code> (<code>kbb -M:dev:render-html</code>) by running the real actor stack &mdash; <code>touroperatorops.operation</code> (a langgraph-clj StateGraph) &rarr; <code>touroperatorops.governor</code> &rarr; <code>touroperatorops.store</code> &mdash; over 14 scenarios against one freshly seeded tour directory. Every id, amount, hold reason and approver below is this run's actual output. The generator refuses to write this file unless the run produced at least one HARD governor refusal carrying a real violation.</p>
     <p class="muted">This run: <strong>14</strong> scenarios &middot; <strong>14</strong> ledger facts &middot; <strong>5</strong> commits &middot; <strong>6</strong> HARD governor refusals over <strong>5</strong> distinct rules (<code>effect-not-propose</code>, <code>op-not-allowed</code>, <code>scope-excluded</code>, <code>settlement-mismatch</code>, <code>tour-unverified</code>) &middot; <strong>2</strong> rollout-gate holds &middot; <strong>1</strong> human rejections. No timestamps: the page is byte-identical across reruns from the same seed.</p>
   </section>
   <section class="card">
@@ -2607,6 +2607,6 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
   </section>
 </main>
 <footer>
-  <p>cloud-itonami-isic-7912 &middot; tour operator operations-coordination actor. Regenerate with <code>clojure -M:dev:render-html</code>. This actor never finalizes a traveler-safety clearance, never issues a resumption order for a held excursion and never overrides a traveler-safety authority &mdash; those are permanent, un-overridable exclusions in <code>touroperatorops.governor</code>, not unfinished work.</p>
+  <p>cloud-itonami-isic-7912 &middot; tour operator operations-coordination actor. Regenerate with <code>kbb -M:dev:render-html</code>. This actor never finalizes a traveler-safety clearance, never issues a resumption order for a held excursion and never overrides a traveler-safety authority &mdash; those are permanent, un-overridable exclusions in <code>touroperatorops.governor</code>, not unfinished work.</p>
 </footer>
 </body></html>
