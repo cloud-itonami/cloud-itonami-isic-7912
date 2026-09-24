@@ -1,6 +1,6 @@
 (ns touroperatorops.advisor-test
   "Unit tests of `touroperatorops.advisor` proposal generation."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [touroperatorops.advisor :as adv]
             [touroperatorops.store :as store]))
 
