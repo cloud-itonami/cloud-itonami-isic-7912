@@ -1,0 +1,34 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README "Robotics premise": robots do itinerary-assembly automation and
+;; excursion-logistics staging for a tour operator (ISIC 7912). Their
+;; physical work: moving a tour group's suitcases from the hotel lobby to the
+;; coach bay, and staging the chilled packed lunches for an excursion, which
+;; then warm up in the coach until the lunch stop.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-7912"
+ :cases
+ [{:id :group-luggage-to-coach-bay
+   :kind :transport
+   :procedure "luggage cart robot moves a tour group's suitcases from the hotel lobby to the coach bay"
+   :params {:mass-kg 90.0 :distance-m 50.0 :v-max-mps 1.2 :a-max-mps2 0.5
+            :brake-decel-mps2 0.8 :drive-force-n 250.0 :crr 0.015
+            :cog-height-m 0.40 :payload-cog-height-m 0.70 :support-half-length-m 0.45
+            :max-time-s 1800.0}
+   :sweep {:param :payload-kg :values [50.0 100.0 200.0 300.0 450.0]}
+   :quantity :cycle-time-s
+   :limit {:max 50.0 :basis "estimate: each cart run must fit the coach's loading window (about 10 runs in 10 minutes including loading)"}}
+  {:id :packed-lunch-in-coach
+   :kind :thermal
+   :procedure "chilled packed lunch box (staged at 4 C) rides in the coach cabin until the lunch stop; its core must stay at or below 10 C"
+   :params {:thickness-m 0.02 :conductivity-w-mk 0.5 :density-kg-m3 1000.0 :specific-heat-j-kgk 3500.0
+            :t0-c 4.0 :h-front-w-m2k 10.0 :h-back-w-m2k 0.0 :t-back-ambient-c 4.0
+            :threshold-c 10.0 :duration-s 14400.0 :nodes 11}
+   :sweep {:param :t-hot-c :values [20.0 25.0 30.0 35.0 40.0]}
+   :quantity :time-to-threshold-s
+   :limit {:min 3600.0 :basis "estimate: up to one hour from staging to the lunch stop; 40 mm food block modeled as half thickness with a symmetric core, natural convection in cabin air"}
+   :boundary {:lo 12.0 :hi 45.0}}]}
