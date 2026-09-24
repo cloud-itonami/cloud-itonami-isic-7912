@@ -36,7 +36,7 @@
   `kbb -M:dev:render-html` -- to pin langgraph/langchain to the
   sibling monorepo checkouts instead of their published git shas; both
   were run and produce a byte-identical page."
-  (:require [clojure.java.io :as io]
+  (:require [kotoba.io :as io]
             [kotoba.lang.text :as str]
             [jp-go-dds.skin]
             [langgraph.graph :as g]
@@ -668,8 +668,8 @@
         disc (approver-disclosure db runs)]
     ;; Only after the invariant has passed -- a refused build must not
     ;; leave a directory behind implying a page was produced.
-    (when-let [parent (.getParentFile (io/file out))]
-      (.mkdirs parent))
+    (when-let [parent (io/parent-file (io/file out))]
+      (io/mkdirs parent))
     (spit out (render db runs))
     (println "wrote" out)
     (println "  scenarios      :" (count runs))
