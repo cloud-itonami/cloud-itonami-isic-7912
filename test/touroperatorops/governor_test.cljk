@@ -3,7 +3,7 @@
   hand-built proposals -- the fast, focused complement to
   `governor-contract-test`'s full-graph integration coverage."
   (:require [kotoba.reservation :as res]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [touroperatorops.governor :as gov]
             [touroperatorops.advisor :as adv]
             [touroperatorops.store :as store]))
